@@ -90,6 +90,38 @@ class SoundEngine {
       console.error('Audio playback error:', e);
     }
   }
+
+  public playAlarm(): void {
+    if (!this.enabled) return;
+    this.init();
+    if (!this.ctx) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      const oscillator = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      oscillator.type = 'square';
+      gain.gain.setValueAtTime(0, now);
+
+      for (let i = 0; i < 8; i++) {
+        const beepStart = now + i * 0.45;
+        const beepEnd = beepStart + 0.3;
+        oscillator.frequency.setValueAtTime(i % 2 === 0 ? 880 : 740, beepStart);
+        gain.gain.setValueAtTime(0, beepStart);
+        gain.gain.linearRampToValueAtTime(0.18, beepStart + 0.02);
+        gain.gain.setValueAtTime(0.18, beepEnd - 0.02);
+        gain.gain.linearRampToValueAtTime(0, beepEnd);
+      }
+
+      oscillator.connect(gain);
+      gain.connect(this.ctx.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 8 * 0.45);
+    } catch (e) {
+      console.error('Alarm playback error:', e);
+    }
+  }
 }
 
 export const sounds = new SoundEngine();

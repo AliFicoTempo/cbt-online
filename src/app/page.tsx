@@ -55,6 +55,7 @@ export default function ParticipantPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [duplicateWarningOpen, setDuplicateWarningOpen] = useState<boolean>(false);
 
   // Data Soal & Jawaban dari Spreadsheet
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -73,6 +74,7 @@ export default function ParticipantPage() {
   const stepRef = useRef(step);
   const hiddenDuringTestRef = useRef(false);
   const submittingRef = useRef(false);
+  const alarmPlayedRef = useRef(false);
   const formRef = useRef<ParticipantForm | null>(null);
   const selectedAnswersRef = useRef(selectedAnswers);
   const progressRef = useRef<StoredProgress | null>(null);
@@ -358,7 +360,12 @@ export default function ParticipantPage() {
       });
       const saveJson = await saveRes.json();
 
-      if (!saveJson.success) {
+      if (saveRes.status === 409) {
+        setDuplicateWarningOpen(true);
+        return;
+      }
+
+      if (!saveRes.ok || !saveJson.success) {
         throw new Error(saveJson.error || 'Gagal menyimpan data peserta.');
       }
 
@@ -380,6 +387,7 @@ export default function ParticipantPage() {
   // Masuk ke Halaman Tes
   const handleStartTest = () => {
     sounds.playSuccess();
+    alarmPlayedRef.current = false;
     const newDeadline = Date.now() + TEST_DURATION_SECONDS * 1000;
     deadlineRef.current = newDeadline;
     setDeadline(newDeadline);
@@ -452,6 +460,10 @@ export default function ParticipantPage() {
   // Auto-submit bila waktu habis (3600 detik)
   const handleAutoSubmit = async () => {
     if (submittingRef.current) return;
+    if (!alarmPlayedRef.current) {
+      sounds.playAlarm();
+      alarmPlayedRef.current = true;
+    }
     submittingRef.current = true;
     setSubmitting(true);
     const answersArray = Object.entries(selectedAnswersRef.current).map(([qid, aid]) => ({
@@ -712,7 +724,7 @@ export default function ParticipantPage() {
 
       {step === 'test' && violationNoticeOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          className="fixed inset-0 z-[100] flex h-screen w-screen items-center justify-center bg-black/75 p-4"
           onClick={() => setViolationNoticeOpen(false)}
         >
           <div
@@ -739,10 +751,46 @@ export default function ParticipantPage() {
               onClick={() => setViolationNoticeOpen(false)}
               className="w-full border-3 border-black bg-[#52FFA8] px-5 py-3 font-black uppercase shadow-[4px_4px_0px_#000] transition-all hover:bg-[#38e890] active:translate-x-1 active:translate-y-1 active:shadow-none"
             >
-              Lanjutkan Tes
+              BAIK
             </button>
             <p className="mt-3 text-xs font-bold text-neutral-600">
-              Klik area di luar popup atau tombol untuk menutup.
+              Klik area di luar popup atau tombol BAIK untuk menutup.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {duplicateWarningOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex h-screen w-screen items-center justify-center bg-black/75 p-4"
+          onClick={() => setDuplicateWarningOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="duplicate-dialog-title"
+            aria-describedby="duplicate-dialog-description"
+            className="w-full max-w-md border-4 border-black bg-[#FFFDF0] p-6 text-center shadow-[8px_8px_0px_#000]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center border-3 border-black bg-[#FF6B8B] shadow-[3px_3px_0px_#000]">
+              <AlertTriangle className="h-8 w-8" />
+            </div>
+            <h2 id="duplicate-dialog-title" className="mb-3 text-xl font-black uppercase">
+              Pendaftaran Ditolak
+            </h2>
+            <p id="duplicate-dialog-description" className="mb-5 text-sm font-bold">
+              Nama dan NIK tersebut atau nomor telepon sudah terdaftar. Peserta tidak dapat mengikuti tes kembali.
+            </p>
+            <button
+              type="button"
+              onClick={() => setDuplicateWarningOpen(false)}
+              className="w-full border-3 border-black bg-[#52FFA8] px-5 py-3 font-black uppercase shadow-[4px_4px_0px_#000] transition-all hover:bg-[#38e890] active:translate-x-1 active:translate-y-1 active:shadow-none"
+            >
+              BAIK
+            </button>
+            <p className="mt-3 text-xs font-bold text-neutral-600">
+              Klik area di luar popup atau tombol BAIK untuk menutup.
             </p>
           </div>
         </div>
