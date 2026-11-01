@@ -3,6 +3,22 @@ import { getParticipants, hasExistingParticipant, saveParticipant } from '@/lib/
 
 export const dynamic = 'force-dynamic';
 
+function formatLocalTimestamp(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jakarta',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((value) => value.type === type)?.value ?? '';
+
+  return `${part('day')}/${part('month')}/${part('year')} ${part('hour')}:${part('minute')}:${part('second')}`;
+}
+
 export async function GET() {
   try {
     const participants = await getParticipants();
@@ -61,16 +77,42 @@ export async function POST(request: Request) {
       );
     }
 
+    const nikKtp = String(nik_ktp).trim();
+    const phoneNumber = String(no_telp).trim();
+    const emailAddress = String(email).trim();
+    const phoneDigits = phoneNumber.replace(/\D/g, '');
+
+    if (!/^\d{1,16}$/.test(nikKtp)) {
+      return NextResponse.json(
+        { success: false, error: 'NIK KTP harus berupa maksimal 16 digit angka.' },
+        { status: 400 }
+      );
+    }
+
+    if (phoneDigits.length < 10 || phoneDigits.length > 13) {
+      return NextResponse.json(
+        { success: false, error: 'Nomor telepon harus terdiri dari 10 sampai 13 digit.' },
+        { status: 400 }
+      );
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress)) {
+      return NextResponse.json(
+        { success: false, error: 'Format email tidak valid.' },
+        { status: 400 }
+      );
+    }
+
     const participant = {
       user_id: String(user_id).trim(),
       nama_lengkap: String(nama_lengkap).trim(),
       tempat_lahir: String(tempat_lahir).trim(),
       tanggal_lahir: String(tanggal_lahir).trim(),
-      nik_ktp: String(nik_ktp).trim(),
+      nik_ktp: nikKtp,
       alamat_lengkap: String(alamat_lengkap).trim(),
-      no_telp: String(no_telp).trim(),
-      email: String(email).trim(),
-      timestamp: new Date().toISOString(),
+      no_telp: phoneNumber,
+      email: emailAddress,
+      timestamp: formatLocalTimestamp(new Date()),
     };
 
     const duplicateField = await hasExistingParticipant(participant);

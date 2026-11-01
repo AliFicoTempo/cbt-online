@@ -329,9 +329,9 @@ export default function ParticipantPage() {
     e.preventDefault();
     setErrorMessage('');
 
-    // Validasi NIK 16 Digit
-    if (form.nik_ktp.trim().length !== 16 || !/^\d+$/.test(form.nik_ktp)) {
-      setErrorMessage('NIK KTP wajib berupa 16 digit angka!');
+    // Validasi batas maksimum NIK KTP
+    if (!/^\d{1,16}$/.test(form.nik_ktp.trim())) {
+      setErrorMessage('NIK KTP harus berupa maksimal 16 digit angka.');
       return;
     }
 
@@ -342,9 +342,15 @@ export default function ParticipantPage() {
       return;
     }
 
-    // Validasi No Telp
-    if (form.no_telp.trim().length < 10) {
-      setErrorMessage('Nomor telepon tidak valid. Pastikan diawali kode negara +62');
+    // Validasi nomor telepon (termasuk kode negara)
+    const phoneDigits = form.no_telp.replace(/\D/g, '');
+    if (phoneDigits.length < 10 || phoneDigits.length > 13) {
+      setErrorMessage('Nomor telepon harus terdiri dari 10 sampai 13 digit, termasuk kode negara.');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      setErrorMessage('Format email tidak valid.');
       return;
     }
 
@@ -620,15 +626,16 @@ export default function ParticipantPage() {
               </div>
             </div>
 
-            {/* NIK KTP (16 Digit) */}
+            {/* NIK KTP (Maksimal 16 Digit) */}
             <div>
               <label className="flex items-center gap-1.5 font-black text-xs uppercase mb-1">
-                <CreditCard className="w-3.5 h-3.5" /> NIK KTP (Wajib 16 Digit) *
+                <CreditCard className="w-3.5 h-3.5" /> NIK KTP (Maksimal 16 Digit) *
               </label>
               <input
                 type="text"
                 required
                 maxLength={16}
+                inputMode="numeric"
                 placeholder="3201012345678901"
                 value={form.nik_ktp}
                 onChange={(e) => setForm({ ...form, nik_ktp: e.target.value.replace(/\D/g, '') })}
@@ -659,6 +666,8 @@ export default function ParticipantPage() {
               <input
                 type="text"
                 required
+                maxLength={16}
+                inputMode="tel"
                 value={form.no_telp}
                 onChange={(e) => handlePhoneChange(e.target.value)}
                 className="w-full border-2 border-black p-2.5 font-mono font-bold text-sm outline-none focus:bg-yellow-50 transition-all"
@@ -874,13 +883,28 @@ export default function ParticipantPage() {
             </span>
           </div>
 
-          <div className="mt-4 border-2 border-black bg-[#FFE600] p-4 text-left">
-            <div className="flex items-center justify-between gap-3">
+          <div className={`mt-4 border-2 border-black p-4 text-left ${
+            finalScore !== null && Number.isFinite(Number(finalScore))
+              ? Number(finalScore) >= 75
+                ? 'bg-[#52FFA8]'
+                : 'bg-[#FF6B8B]'
+              : 'bg-[#FFE600]'
+          }`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="font-black uppercase">Final Score</span>
               {finalScore !== null ? (
-                <span className="border-2 border-black bg-white px-3 py-1 font-mono text-lg font-black">
-                  {finalScore}
-                </span>
+                Number.isFinite(Number(finalScore)) ? (
+                  <div className="flex items-center gap-2">
+                    <span className="border-2 border-black bg-white px-3 py-1 font-mono text-lg font-black">
+                      {finalScore}
+                    </span>
+                    <span className="border-2 border-black bg-white px-2 py-1 font-black">
+                      {Number(finalScore) >= 75 ? 'LULUS' : 'GAGAL'}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-right text-xs font-bold">Nilai belum tersedia.</span>
+                )
               ) : (
                 <span className="text-right text-xs font-bold">
                   {scorePending ? 'Nilai sedang dihitung...' : 'Nilai belum tersedia.'}
