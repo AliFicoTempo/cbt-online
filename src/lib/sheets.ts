@@ -58,7 +58,7 @@ export async function getParticipants(): Promise<Participant[]> {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: 'db_peserta!A2:K',
+    range: 'db_peserta!A2:L',
   });
 
   return (res.data.values || []).map((row) => ({
@@ -70,10 +70,39 @@ export async function getParticipants(): Promise<Participant[]> {
     alamat_lengkap: (row[5] || '').toString().trim(),
     no_telp: (row[6] || '').toString().trim(),
     email: (row[7] || '').toString().trim(),
-    final_score: row[8] && row[8].toString().trim() !== '' ? row[8].toString().trim() : '-',
-    status_test: row[9] && row[9].toString().trim() !== '' ? row[9].toString().trim() : '-',
-    result_pdf: row[10] && row[10].toString().trim() !== '' ? row[10].toString().trim() : '-',
+    timestamp: row[8] && row[8].toString().trim() !== '' ? row[8].toString().trim() : '-',
+    final_score: row[9] && row[9].toString().trim() !== '' ? row[9].toString().trim() : '-',
+    status_test: row[10] && row[10].toString().trim() !== '' ? row[10].toString().trim() : '-',
+    result_pdf: row[11] && row[11].toString().trim() !== '' ? row[11].toString().trim() : '-',
   })).filter((p) => p.user_id !== '');
+}
+
+function normalizeParticipantName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('id-ID');
+}
+
+function normalizePhoneNumber(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  return digits.startsWith('0') ? `62${digits.slice(1)}` : digits;
+}
+
+export async function hasExistingParticipant(
+  participant: Pick<Participant, 'nama_lengkap' | 'nik_ktp' | 'no_telp'>
+): Promise<boolean> {
+  const participants = await getParticipants();
+  const name = normalizeParticipantName(participant.nama_lengkap);
+  const nik = participant.nik_ktp.replace(/\D/g, '');
+  const phone = normalizePhoneNumber(participant.no_telp);
+
+  return participants.some((existing) => {
+    const sameNameAndNik =
+      normalizeParticipantName(existing.nama_lengkap) === name &&
+      existing.nik_ktp.replace(/\D/g, '') === nik;
+    const existingPhone = normalizePhoneNumber(existing.no_telp);
+    const samePhone = phone !== '' && existingPhone !== '' && existingPhone === phone;
+
+    return sameNameAndNik || samePhone;
+  });
 }
 
 export async function saveParticipant(data: {
@@ -85,13 +114,14 @@ export async function saveParticipant(data: {
   alamat_lengkap: string;
   no_telp: string;
   email: string;
+  timestamp: string;
 }): Promise<void> {
   const auth = getAuthClient();
   const sheets = google.sheets({ version: 'v4', auth });
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
-    range: 'db_peserta!A:H',
+    range: 'db_peserta!A:I',
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [[
@@ -103,6 +133,7 @@ export async function saveParticipant(data: {
         data.alamat_lengkap,
         data.no_telp,
         data.email,
+        data.timestamp,
       ]],
     },
   });

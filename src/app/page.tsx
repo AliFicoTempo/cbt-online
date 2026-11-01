@@ -21,6 +21,34 @@ import {
   Home,
 } from 'lucide-react';
 
+const TEST_DURATION_SECONDS = 3600;
+const LEAVE_PENALTY_SECONDS = 600;
+const PROGRESS_STORAGE_KEY = 'cbt-participant-progress';
+
+interface ParticipantForm {
+  user_id: string;
+  nama_lengkap: string;
+  tempat_lahir: string;
+  tanggal_lahir: string;
+  nik_ktp: string;
+  alamat_lengkap: string;
+  no_telp: string;
+  email: string;
+}
+
+interface StoredProgress {
+  version: 1;
+  step: 'register' | 'description' | 'test';
+  form: ParticipantForm;
+  questions: Question[];
+  answers: Answer[];
+  currentIndex: number;
+  selectedAnswers: Record<string, string>;
+  deadline: number | null;
+  violations: number;
+  hiddenDuringTest: boolean;
+}
+
 export default function ParticipantPage() {
   const [step, setStep] = useState<'register' | 'description' | 'test' | 'finished'>('register');
   const [loading, setLoading] = useState<boolean>(false);
@@ -33,9 +61,20 @@ export default function ParticipantPage() {
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
 
-  // Countdown Waktu (60 Menit = 3600 Detik)
-  const [timeLeft, setTimeLeft] = useState<number>(3600);
+  const [timeLeft, setTimeLeft] = useState<number>(TEST_DURATION_SECONDS);
+  const [deadline, setDeadline] = useState<number | null>(null);
+  const [violations, setViolations] = useState<number>(0);
+  const [hiddenDuringTest, setHiddenDuringTest] = useState<boolean>(false);
+  const [restoreReady, setRestoreReady] = useState<boolean>(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const deadlineRef = useRef<number | null>(null);
+  const stepRef = useRef(step);
+  const hiddenDuringTestRef = useRef(false);
+  const submittingRef = useRef(false);
+  const formRef = useRef<ParticipantForm | null>(null);
+  const selectedAnswersRef = useRef(selectedAnswers);
+  const progressRef = useRef<StoredProgress | null>(null);
+  const autoSubmitRef = useRef<() => void>(() => {});
 
   // Form Data Diri Peserta
   const [form, setForm] = useState({
@@ -48,6 +87,166 @@ export default function ParticipantPage() {
     no_telp: '+62',
     email: '',
   });
+
+  stepRef.current = step;
+  deadlineRef.current = deadline;
+  hiddenDuringTestRef.current = hiddenDuringTest;
+  formRef.current = form;
+  selectedAnswersRef.current = selectedAnswers;
+  progressRef.current = step === 'finished' ? null : {
+    version: 1,
+    step,
+    form,
+    questions,
+    answers,
+    currentIndex,
+    selectedAnswers,
+    deadline,
+    violations,
+    hiddenDuringTest,
+  };
+
+  // Restore an unfinished registration or test after a reload in the same tab.
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(PROGRESS_STORAGE_KEY);
+      if (saved) {
+        const progress = JSON.parse(saved) as StoredProgress;
+        const validForm =
+          progress.form &&
+          ['user_id', 'nama_lengkap', 'tempat_lahir', 'tanggal_lahir', 'nik_ktp', 'alamat_lengkap', 'no_telp', 'email']
+            .every((key) => typeof progress.form[key as keyof ParticipantForm] === 'string');
+        const validStep = ['register', 'description', 'test'].includes(progress.step);
+        const validTestState = progress.step === 'register' || (
+          Array.isArray(progress.questions) &&
+          progress.questions.length > 0 &&
+          Array.isArray(progress.answers)
+        );
+
+        if (progress.version === 1 && validForm && validStep && validTestState) {
+          setForm(progress.form);
+          setQuestions(progress.questions || []);
+          setAnswers(progress.answers || []);
+          setCurrentIndex(progress.currentIndex || 0);
+          setSelectedAnswers(progress.selectedAnswers || {});
+          setViolations(progress.violations || 0);
+          setHiddenDuringTest(Boolean(progress.hiddenDuringTest));
+          if (progress.step === 'test' && Number.isFinite(progress.deadline)) {
+            setDeadline(progress.deadline);
+            setTimeLeft(Math.max(0, Math.ceil((progress.deadline - Date.now()) / 1000)));
+          }
+          setStep(progress.step);
+        } else {
+          sessionStorage.removeItem(PROGRESS_STORAGE_KEY);
+        }
+      }
+    } catch (error) {
+      console.error('Gagal memulihkan progres peserta:', error);
+      setErrorMessage('Progres sebelumnya tidak dapat dipulihkan. Silakan lanjutkan atau isi ulang data.');
+    } finally {
+      setRestoreReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!restoreReady) return;
+    if (step === 'finished') {
+      try {
+        sessionStorage.removeItem(PROGRESS_STORAGE_KEY);
+      } catch (error) {
+        console.error('Gagal menghapus progres peserta:', error);
+      }
+      return;
+    }
+
+    const hasFormData = Object.entries(form).some(([key, value]) => key !== 'no_telp' || value !== '+62');
+    if (!hasFormData && step === 'register') {
+      try {
+        sessionStorage.removeItem(PROGRESS_STORAGE_KEY);
+      } catch (error) {
+        console.error('Gagal menghapus progres peserta:', error);
+      }
+      return;
+    }
+
+    try {
+      sessionStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(progressRef.current));
+    } catch (error) {
+      console.error('Gagal menyimpan progres peserta:', error);
+      setErrorMessage('Progres tidak dapat disimpan di browser ini. Jangan muat ulang halaman.');
+    }
+  }, [
+    restoreReady,
+    step,
+    form,
+    questions,
+    answers,
+    currentIndex,
+    selectedAnswers,
+    deadline,
+    violations,
+    hiddenDuringTest,
+  ]);
+
+  useEffect(() => {
+    const hasFormData = Object.entries(form).some(([key, value]) => key !== 'no_telp' || value !== '+62');
+    if (!hasFormData && step === 'register') return;
+
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+      try {
+        if (progressRef.current) {
+          sessionStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(progressRef.current));
+        }
+      } catch (error) {
+        console.error('Gagal menyimpan progres sebelum halaman ditinggalkan:', error);
+      }
+    };
+
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [form, step]);
+
+  const applyLeavePenalty = () => {
+    hiddenDuringTestRef.current = false;
+    setHiddenDuringTest(false);
+    setViolations((count) => count + 1);
+
+    const currentDeadline = deadlineRef.current;
+    if (currentDeadline === null) return;
+
+    const nextDeadline = currentDeadline - LEAVE_PENALTY_SECONDS * 1000;
+    deadlineRef.current = nextDeadline;
+    setDeadline(nextDeadline);
+    const remaining = Math.max(0, Math.ceil((nextDeadline - Date.now()) / 1000));
+    setTimeLeft(remaining);
+    if (remaining === 0) autoSubmitRef.current();
+  };
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (stepRef.current !== 'test') return;
+
+      if (document.visibilityState === 'hidden') {
+        hiddenDuringTestRef.current = true;
+        setHiddenDuringTest(true);
+      } else if (hiddenDuringTestRef.current) {
+        applyLeavePenalty();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    if (
+      restoreReady &&
+      stepRef.current === 'test' &&
+      hiddenDuringTestRef.current &&
+      document.visibilityState === 'visible'
+    ) {
+      applyLeavePenalty();
+    }
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [restoreReady]);
 
   // Ambil Data Soal & Pilihan Jawaban dari Google Sheets
   const fetchQuestionsFromSheets = async (): Promise<boolean> => {
@@ -68,25 +267,29 @@ export default function ParticipantPage() {
     }
   };
 
-  // Timer Countdown saat masuk ke halaman test
+  // Use an absolute deadline so background-tab timer throttling does not pause the exam.
   useEffect(() => {
-    if (step === 'test') {
-      timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            if (timerRef.current) clearInterval(timerRef.current);
-            handleAutoSubmit();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
+    if (step !== 'test' || deadline === null) return;
 
+    const updateTimeLeft = () => {
+      const remaining = Math.max(0, Math.ceil((deadlineRef.current! - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      if (remaining === 0) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        autoSubmitRef.current();
+        return false;
+      }
+      return true;
+    };
+
+    if (updateTimeLeft()) {
+      timerRef.current = setInterval(updateTimeLeft, 1000);
+    }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [step]);
+  }, [step, deadline]);
 
   // Format otomatis tanggal lahir dd/mm/yyyy
   const handleDateChange = (val: string) => {
@@ -171,6 +374,12 @@ export default function ParticipantPage() {
   // Masuk ke Halaman Tes
   const handleStartTest = () => {
     sounds.playSuccess();
+    const newDeadline = Date.now() + TEST_DURATION_SECONDS * 1000;
+    deadlineRef.current = newDeadline;
+    setDeadline(newDeadline);
+    setTimeLeft(TEST_DURATION_SECONDS);
+    hiddenDuringTestRef.current = false;
+    setHiddenDuringTest(false);
     setStep('test');
   };
 
@@ -200,10 +409,11 @@ export default function ParticipantPage() {
 
   // Kirim Jawaban Akhir ke Sheet db_jawaban_peserta
   const handleFinalSubmit = async () => {
-    if (timerRef.current) clearInterval(timerRef.current);
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
 
-    const answersArray = Object.entries(selectedAnswers).map(([qid, aid]) => ({
+    const answersArray = Object.entries(selectedAnswersRef.current).map(([qid, aid]) => ({
       question_id: qid,
       answer_id: aid,
     }));
@@ -213,7 +423,7 @@ export default function ParticipantPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: form.user_id,
+          user_id: formRef.current?.user_id,
           answers: answersArray,
         }),
       });
@@ -228,35 +438,47 @@ export default function ParticipantPage() {
     } catch {
       alert('Koneksi terputus saat menyimpan lembar jawaban.');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
   // Auto-submit bila waktu habis (3600 detik)
   const handleAutoSubmit = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
-    const answersArray = Object.entries(selectedAnswers).map(([qid, aid]) => ({
+    const answersArray = Object.entries(selectedAnswersRef.current).map(([qid, aid]) => ({
       question_id: qid,
       answer_id: aid,
     }));
 
     try {
-      await fetch('/api/submit', {
+      const res = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: form.user_id,
+          user_id: formRef.current?.user_id,
           answers: answersArray,
+          auto_submit: true,
         }),
       });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Gagal menyimpan jawaban otomatis.');
+      }
       sounds.playSuccess();
       setStep('finished');
-    } catch {
-      setStep('finished');
+    } catch (error) {
+      console.error('Gagal mengirim jawaban otomatis:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Gagal menyimpan jawaban otomatis.');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
+
+  autoSubmitRef.current = handleAutoSubmit;
 
   return (
     <div className="min-h-screen bg-[#FFFDF0] text-black font-sans py-6 px-4 flex flex-col justify-center items-center">
@@ -429,6 +651,12 @@ export default function ParticipantPage() {
               <ShieldCheck className="w-5 h-5 flex-shrink-0 text-black mt-0.5" />
               <span>Setiap pertanyaan wajib dijawab untuk melanjutkan ke soal berikutnya.</span>
             </div>
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 flex-shrink-0 text-[#FF6B8B] mt-0.5" />
+              <span>
+                Jika halaman ujian ditinggalkan lalu dibuka kembali, waktu akan dikurangi 10 menit setiap kali.
+              </span>
+            </div>
           </div>
 
           <button
@@ -447,6 +675,17 @@ export default function ParticipantPage() {
       {/* ============================================================ */}
       {step === 'test' && questions.length > 0 && (
         <div className="w-full max-w-lg">
+          {errorMessage && (
+            <div className="mb-4 bg-[#FF6B8B] border-2 border-black p-3 font-bold text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+          {violations > 0 && (
+            <div className="mb-4 bg-[#FFE600] border-2 border-black p-3 font-black text-xs">
+              Peringatan meninggalkan ujian: {violations} kali. Penalti 10 menit telah diterapkan setiap kali.
+            </div>
+          )}
           {/* Sticky Header: Timer & Status */}
           <div className="sticky top-3 z-30 flex items-center justify-between bg-white border-3 border-black p-3 mb-4 shadow-[4px_4px_0px_#000]">
             <div className="font-mono font-black text-xs bg-black text-white px-2.5 py-1 uppercase">
@@ -481,8 +720,8 @@ export default function ParticipantPage() {
 
           <h1 className="text-2xl font-black uppercase tracking-tight mb-2">Test Selesai!</h1>
           <p className="text-xs md:text-sm font-bold text-neutral-700 leading-relaxed mb-6">
-            Seluruh lembar jawaban Anda telah tersimpan secara otomatis ke basis data Google
-            Spreadsheet. Penilaian akan diolah langsung oleh panitia/admin.
+            Ujian telah ditutup. Jawaban yang berhasil dikirim tersimpan di Google Spreadsheet.
+            Penilaian akan diolah langsung oleh panitia/admin.
           </p>
 
           <div className="bg-[#FFFDF0] border-2 border-black p-3.5 font-mono text-xs font-black uppercase flex items-center justify-between mb-4">

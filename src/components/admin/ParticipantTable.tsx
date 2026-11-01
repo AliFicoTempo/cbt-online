@@ -57,6 +57,7 @@ export default function ParticipantTable({
               <th className="p-3 border-r-2 border-black font-black uppercase">Tempat / Tgl Lahir</th>
               <th className="p-3 border-r-2 border-black font-black uppercase">No. Telp</th>
               <th className="p-3 border-r-2 border-black font-black uppercase">Email</th>
+              <th className="p-3 border-r-2 border-black font-black uppercase">Timestamp</th>
               {/* 3 Kolom Khusus */}
               <th className="p-3 border-r-2 border-black font-black uppercase bg-[#FFE600] text-center">
                 final_score
@@ -72,7 +73,7 @@ export default function ParticipantTable({
           <tbody>
             {participants.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center font-bold text-neutral-500">
+                <td colSpan={10} className="p-8 text-center font-bold text-neutral-500">
                   {loading
                     ? 'Sedang mengambil data terbaru dari Google Spreadsheet...'
                     : 'Belum ada data peserta yang terdaftar.'}
@@ -106,6 +107,9 @@ export default function ParticipantTable({
                     </td>
                     <td className="p-3 border-r-2 border-black text-neutral-700">
                       {p.email}
+                    </td>
+                    <td className="p-3 border-r-2 border-black font-mono text-neutral-700">
+                      {p.timestamp}
                     </td>
 
                     {/* Kolom 1: final_score */}

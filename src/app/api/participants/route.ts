@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getParticipants, saveParticipant } from '@/lib/sheets';
+import { getParticipants, hasExistingParticipant, saveParticipant } from '@/lib/sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await saveParticipant({
+    const participant = {
       user_id: String(user_id).trim(),
       nama_lengkap: String(nama_lengkap).trim(),
       tempat_lahir: String(tempat_lahir).trim(),
@@ -70,7 +70,20 @@ export async function POST(request: Request) {
       alamat_lengkap: String(alamat_lengkap).trim(),
       no_telp: String(no_telp).trim(),
       email: String(email).trim(),
-    });
+      timestamp: new Date().toISOString(),
+    };
+
+    if (await hasExistingParticipant(participant)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Nama dan NIK tersebut atau nomor telepon sudah terdaftar. Peserta tidak dapat mengikuti tes kembali.',
+        },
+        { status: 409 }
+      );
+    }
+
+    await saveParticipant(participant);
 
     return NextResponse.json(
       {

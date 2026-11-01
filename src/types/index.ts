@@ -39,6 +39,7 @@ export interface Participant {
   alamat_lengkap: string;
   no_telp: string;
   email: string;
+  timestamp: string;
   final_score: string;
   status_test: string;
   result_pdf: string;

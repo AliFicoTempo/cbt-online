@@ -6,9 +6,9 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { user_id, answers } = body;
+    const { user_id, answers, auto_submit } = body;
 
-    if (!user_id || !Array.isArray(answers) || answers.length === 0) {
+    if (!user_id || !Array.isArray(answers) || (answers.length === 0 && auto_submit !== true)) {
       return NextResponse.json(
         {
           success: false,
@@ -18,12 +18,16 @@ export async function POST(request: Request) {
       );
     }
 
-    await saveParticipantAnswers(user_id, answers);
+    if (answers.length > 0) {
+      await saveParticipantAnswers(user_id, answers);
+    }
 
     return NextResponse.json(
       {
         success: true,
-        message: 'Jawaban peserta berhasil disimpan ke spreadsheet',
+        message: answers.length > 0
+          ? 'Jawaban peserta berhasil disimpan ke spreadsheet'
+          : 'Ujian otomatis ditutup tanpa jawaban untuk disimpan',
       },
       { status: 200 }
     );
