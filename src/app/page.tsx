@@ -46,6 +46,7 @@ interface StoredProgress {
   selectedAnswers: Record<string, string>;
   deadline: number | null;
   violations: number;
+  violationNoticeOpen: boolean;
   hiddenDuringTest: boolean;
 }
 
@@ -64,6 +65,7 @@ export default function ParticipantPage() {
   const [timeLeft, setTimeLeft] = useState<number>(TEST_DURATION_SECONDS);
   const [deadline, setDeadline] = useState<number | null>(null);
   const [violations, setViolations] = useState<number>(0);
+  const [violationNoticeOpen, setViolationNoticeOpen] = useState<boolean>(false);
   const [hiddenDuringTest, setHiddenDuringTest] = useState<boolean>(false);
   const [restoreReady, setRestoreReady] = useState<boolean>(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -103,6 +105,7 @@ export default function ParticipantPage() {
     selectedAnswers,
     deadline,
     violations,
+    violationNoticeOpen,
     hiddenDuringTest,
   };
 
@@ -130,6 +133,7 @@ export default function ParticipantPage() {
           setCurrentIndex(progress.currentIndex || 0);
           setSelectedAnswers(progress.selectedAnswers || {});
           setViolations(progress.violations || 0);
+          setViolationNoticeOpen(Boolean(progress.violationNoticeOpen));
           setHiddenDuringTest(Boolean(progress.hiddenDuringTest));
           if (progress.step === 'test' && Number.isFinite(progress.deadline)) {
             setDeadline(progress.deadline);
@@ -185,6 +189,7 @@ export default function ParticipantPage() {
     selectedAnswers,
     deadline,
     violations,
+    violationNoticeOpen,
     hiddenDuringTest,
   ]);
 
@@ -212,6 +217,7 @@ export default function ParticipantPage() {
     hiddenDuringTestRef.current = false;
     setHiddenDuringTest(false);
     setViolations((count) => count + 1);
+    setViolationNoticeOpen(true);
 
     const currentDeadline = deadlineRef.current;
     if (currentDeadline === null) return;
@@ -681,11 +687,6 @@ export default function ParticipantPage() {
               <span>{errorMessage}</span>
             </div>
           )}
-          {violations > 0 && (
-            <div className="mb-4 bg-[#FFE600] border-2 border-black p-3 font-black text-xs">
-              Peringatan meninggalkan ujian: {violations} kali. Penalti 10 menit telah diterapkan setiap kali.
-            </div>
-          )}
           {/* Sticky Header: Timer & Status */}
           <div className="sticky top-3 z-30 flex items-center justify-between bg-white border-3 border-black p-3 mb-4 shadow-[4px_4px_0px_#000]">
             <div className="font-mono font-black text-xs bg-black text-white px-2.5 py-1 uppercase">
@@ -706,6 +707,44 @@ export default function ParticipantPage() {
             isLast={currentIndex === questions.length - 1}
             submitting={submitting}
           />
+        </div>
+      )}
+
+      {step === 'test' && violationNoticeOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setViolationNoticeOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="violation-dialog-title"
+            aria-describedby="violation-dialog-description"
+            className="w-full max-w-md border-4 border-black bg-[#FFFDF0] p-6 text-center shadow-[8px_8px_0px_#000]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center border-3 border-black bg-[#FFE600] shadow-[3px_3px_0px_#000]">
+              <AlertTriangle className="h-8 w-8" />
+            </div>
+            <h2 id="violation-dialog-title" className="mb-3 text-xl font-black uppercase">
+              Peringatan Pelanggaran
+            </h2>
+            <p id="violation-dialog-description" className="mb-5 text-sm font-bold">
+              Halaman ujian telah ditinggalkan. Penalti 10 menit telah diterapkan.
+              <br />
+              Total pelanggaran: {violations} kali.
+            </p>
+            <button
+              type="button"
+              onClick={() => setViolationNoticeOpen(false)}
+              className="w-full border-3 border-black bg-[#52FFA8] px-5 py-3 font-black uppercase shadow-[4px_4px_0px_#000] transition-all hover:bg-[#38e890] active:translate-x-1 active:translate-y-1 active:shadow-none"
+            >
+              Lanjutkan Tes
+            </button>
+            <p className="mt-3 text-xs font-bold text-neutral-600">
+              Klik area di luar popup atau tombol untuk menutup.
+            </p>
+          </div>
         </div>
       )}
 
