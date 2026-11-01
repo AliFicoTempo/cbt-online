@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { saveParticipantAnswers } from '@/lib/sheets';
+import { getParticipantFinalScore, saveParticipantAnswers } from '@/lib/sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,12 +22,15 @@ export async function POST(request: Request) {
       await saveParticipantAnswers(user_id, answers);
     }
 
+    const final_score = await getParticipantFinalScore(String(user_id));
+
     return NextResponse.json(
       {
         success: true,
         message: answers.length > 0
           ? 'Jawaban peserta berhasil disimpan ke spreadsheet'
           : 'Ujian otomatis ditutup tanpa jawaban untuk disimpan',
+        data: { final_score },
       },
       { status: 200 }
     );

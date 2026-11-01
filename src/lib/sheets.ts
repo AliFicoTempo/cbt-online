@@ -77,32 +77,53 @@ export async function getParticipants(): Promise<Participant[]> {
   })).filter((p) => p.user_id !== '');
 }
 
-function normalizeParticipantName(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('id-ID');
-}
-
 function normalizePhoneNumber(value: string): string {
   const digits = value.replace(/\D/g, '');
   return digits.startsWith('0') ? `62${digits.slice(1)}` : digits;
 }
 
 export async function hasExistingParticipant(
-  participant: Pick<Participant, 'nama_lengkap' | 'nik_ktp' | 'no_telp'>
-): Promise<boolean> {
+  participant: Pick<Participant, 'nik_ktp' | 'no_telp' | 'email'>
+): Promise<'nik_ktp' | 'no_telp' | 'email' | null> {
   const participants = await getParticipants();
-  const name = normalizeParticipantName(participant.nama_lengkap);
   const nik = participant.nik_ktp.replace(/\D/g, '');
   const phone = normalizePhoneNumber(participant.no_telp);
+  const email = participant.email.trim().toLocaleLowerCase('en-US');
 
-  return participants.some((existing) => {
-    const sameNameAndNik =
-      normalizeParticipantName(existing.nama_lengkap) === name &&
-      existing.nik_ktp.replace(/\D/g, '') === nik;
+  for (const existing of participants) {
+    if (nik !== '' && existing.nik_ktp.replace(/\D/g, '') === nik) {
+      return 'nik_ktp';
+    }
+
     const existingPhone = normalizePhoneNumber(existing.no_telp);
-    const samePhone = phone !== '' && existingPhone !== '' && existingPhone === phone;
+    if (phone !== '' && existingPhone !== '' && existingPhone === phone) {
+      return 'no_telp';
+    }
 
-    return sameNameAndNik || samePhone;
+    if (
+      email !== '' &&
+      existing.email.trim().toLocaleLowerCase('en-US') === email
+    ) {
+      return 'email';
+    }
+  }
+
+  return null;
+}
+
+export async function getParticipantFinalScore(userId: string): Promise<string | null> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: 'v4', auth });
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'db_peserta!A2:J',
   });
+  const participantRow = (res.data.values || []).find(
+    (row) => (row[0] || '').toString().trim() === userId.trim()
+  );
+  const score = participantRow?.[9]?.toString().trim();
+
+  return score ? score : null;
 }
 
 export async function saveParticipant(data: {

@@ -73,11 +73,19 @@ export async function POST(request: Request) {
       timestamp: new Date().toISOString(),
     };
 
-    if (await hasExistingParticipant(participant)) {
+    const duplicateField = await hasExistingParticipant(participant);
+    if (duplicateField) {
+      const duplicateMessages = {
+        nik_ktp: 'NIK KTP sudah terdaftar.',
+        no_telp: 'Nomor telepon sudah terdaftar.',
+        email: 'Email sudah terdaftar.',
+      };
+
       return NextResponse.json(
         {
           success: false,
-          error: 'Nama dan NIK tersebut atau nomor telepon sudah terdaftar. Peserta tidak dapat mengikuti tes kembali.',
+          error: `${duplicateMessages[duplicateField]} Peserta tidak dapat mengikuti tes kembali.`,
+          duplicateField,
         },
         { status: 409 }
       );

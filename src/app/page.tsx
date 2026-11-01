@@ -56,6 +56,9 @@ export default function ParticipantPage() {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [duplicateWarningOpen, setDuplicateWarningOpen] = useState<boolean>(false);
+  const [duplicateWarningMessage, setDuplicateWarningMessage] = useState<string>('');
+  const [finalScore, setFinalScore] = useState<string | null>(null);
+  const [scorePending, setScorePending] = useState<boolean>(false);
 
   // Data Soal & Jawaban dari Spreadsheet
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -361,6 +364,7 @@ export default function ParticipantPage() {
       const saveJson = await saveRes.json();
 
       if (saveRes.status === 409) {
+        setDuplicateWarningMessage(saveJson.error || 'Identitas peserta sudah terdaftar.');
         setDuplicateWarningOpen(true);
         return;
       }
@@ -444,6 +448,8 @@ export default function ParticipantPage() {
 
       const json = await res.json();
       if (json.success) {
+        setFinalScore(json.data?.final_score ?? null);
+        setScorePending(!json.data?.final_score);
         sounds.playSuccess();
         setStep('finished');
       } else {
@@ -485,6 +491,8 @@ export default function ParticipantPage() {
       if (!res.ok || !json.success) {
         throw new Error(json.error || 'Gagal menyimpan jawaban otomatis.');
       }
+      setFinalScore(json.data?.final_score ?? null);
+      setScorePending(!json.data?.final_score);
       sounds.playSuccess();
       setStep('finished');
     } catch (error) {
@@ -497,6 +505,50 @@ export default function ParticipantPage() {
   };
 
   autoSubmitRef.current = handleAutoSubmit;
+
+  useEffect(() => {
+    if (step !== 'finished' || !scorePending || !form.user_id) return;
+
+    let active = true;
+    let attempts = 0;
+    const maxAttempts = 20;
+    let timeout: ReturnType<typeof setTimeout>;
+
+    const fetchScore = async () => {
+      attempts += 1;
+      try {
+        const res = await fetch(`/api/participants/${encodeURIComponent(form.user_id)}/score`, {
+          cache: 'no-store',
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || 'Gagal memuat nilai peserta.');
+        }
+
+        if (!active) return;
+        const score = json.data?.final_score;
+        if (score !== null && score !== undefined && String(score).trim() !== '') {
+          setFinalScore(String(score).trim());
+          setScorePending(false);
+          return;
+        }
+      } catch (error) {
+        console.error('Gagal mengambil final_score:', error);
+      }
+
+      if (active && attempts < maxAttempts) {
+        timeout = setTimeout(fetchScore, 3000);
+      } else if (active) {
+        setScorePending(false);
+      }
+    };
+
+    timeout = setTimeout(fetchScore, 1500);
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [step, scorePending, form.user_id]);
 
   return (
     <div className="min-h-screen bg-[#FFFDF0] text-black font-sans py-6 px-4 flex flex-col justify-center items-center">
@@ -780,7 +832,7 @@ export default function ParticipantPage() {
               Pendaftaran Ditolak
             </h2>
             <p id="duplicate-dialog-description" className="mb-5 text-sm font-bold">
-              Nama dan NIK tersebut atau nomor telepon sudah terdaftar. Peserta tidak dapat mengikuti tes kembali.
+              {duplicateWarningMessage}
             </p>
             <button
               type="button"
@@ -807,8 +859,7 @@ export default function ParticipantPage() {
 
           <h1 className="text-2xl font-black uppercase tracking-tight mb-2">Test Selesai!</h1>
           <p className="text-xs md:text-sm font-bold text-neutral-700 leading-relaxed mb-6">
-            Ujian telah ditutup. Jawaban yang berhasil dikirim tersimpan di Google Spreadsheet.
-            Penilaian akan diolah langsung oleh panitia/admin.
+            Ujian telah ditutup. Jawaban peserta telah dikirim ke Google Spreadsheet.
           </p>
 
           <div className="bg-[#FFFDF0] border-2 border-black p-3.5 font-mono text-xs font-black uppercase flex items-center justify-between mb-4">
@@ -821,6 +872,26 @@ export default function ParticipantPage() {
             <span className="bg-[#52FFA8] border border-black px-2 py-0.5">
               {Object.keys(selectedAnswers).length} / {questions.length}
             </span>
+          </div>
+
+          <div className="mt-4 border-2 border-black bg-[#FFE600] p-4 text-left">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-black uppercase">Final Score</span>
+              {finalScore !== null ? (
+                <span className="border-2 border-black bg-white px-3 py-1 font-mono text-lg font-black">
+                  {finalScore}
+                </span>
+              ) : (
+                <span className="text-right text-xs font-bold">
+                  {scorePending ? 'Nilai sedang dihitung...' : 'Nilai belum tersedia.'}
+                </span>
+              )}
+            </div>
+            {scorePending && (
+              <p className="mt-2 text-xs font-bold">
+                Halaman ini memeriksa nilai secara otomatis. Silakan tunggu sebentar.
+              </p>
+            )}
           </div>
         </div>
       )}
