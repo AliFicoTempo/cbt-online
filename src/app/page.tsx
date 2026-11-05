@@ -23,6 +23,9 @@ import {
 
 const TEST_DURATION_SECONDS = 3600;
 const LEAVE_PENALTY_SECONDS = 600;
+const QUESTION_DURATION_SECONDS = 60;
+const QUESTION_COUNTDOWN_SECONDS = 10;
+const TIMEOUT_ANSWER_ID = 'timeout';
 const PROGRESS_STORAGE_KEY = 'cbt-participant-progress';
 
 interface ParticipantForm {
@@ -45,6 +48,7 @@ interface StoredProgress {
   currentIndex: number;
   selectedAnswers: Record<string, string>;
   deadline: number | null;
+  questionDeadline: number | null;
   violations: number;
   violationNoticeOpen: boolean;
   hiddenDuringTest: boolean;
@@ -68,13 +72,20 @@ export default function ParticipantPage() {
 
   const [timeLeft, setTimeLeft] = useState<number>(TEST_DURATION_SECONDS);
   const [deadline, setDeadline] = useState<number | null>(null);
+  const [questionDeadline, setQuestionDeadline] = useState<number | null>(null);
+  const [questionCountdown, setQuestionCountdown] = useState<number | null>(null);
   const [violations, setViolations] = useState<number>(0);
   const [violationNoticeOpen, setViolationNoticeOpen] = useState<boolean>(false);
   const [hiddenDuringTest, setHiddenDuringTest] = useState<boolean>(false);
   const [restoreReady, setRestoreReady] = useState<boolean>(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const questionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const questionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deadlineRef = useRef<number | null>(null);
+  const questionDeadlineRef = useRef<number | null>(null);
   const stepRef = useRef(step);
+  const currentIndexRef = useRef(currentIndex);
+  const questionsRef = useRef(questions);
   const hiddenDuringTestRef = useRef(false);
   const submittingRef = useRef(false);
   const alarmPlayedRef = useRef(false);
@@ -82,6 +93,7 @@ export default function ParticipantPage() {
   const selectedAnswersRef = useRef(selectedAnswers);
   const progressRef = useRef<StoredProgress | null>(null);
   const autoSubmitRef = useRef<() => void>(() => {});
+  const questionTimeoutHandlerRef = useRef<() => void>(() => {});
 
   // Form Data Diri Peserta
   const [form, setForm] = useState({
@@ -97,6 +109,9 @@ export default function ParticipantPage() {
 
   stepRef.current = step;
   deadlineRef.current = deadline;
+  questionDeadlineRef.current = questionDeadline;
+  currentIndexRef.current = currentIndex;
+  questionsRef.current = questions;
   hiddenDuringTestRef.current = hiddenDuringTest;
   formRef.current = form;
   selectedAnswersRef.current = selectedAnswers;
@@ -109,6 +124,7 @@ export default function ParticipantPage() {
     currentIndex,
     selectedAnswers,
     deadline,
+    questionDeadline,
     violations,
     violationNoticeOpen,
     hiddenDuringTest,
@@ -143,6 +159,11 @@ export default function ParticipantPage() {
           if (progress.step === 'test' && Number.isFinite(progress.deadline)) {
             setDeadline(progress.deadline);
             setTimeLeft(Math.max(0, Math.ceil((progress.deadline - Date.now()) / 1000)));
+            setQuestionDeadline(
+              Number.isFinite(progress.questionDeadline)
+                ? progress.questionDeadline
+                : Date.now() + QUESTION_DURATION_SECONDS * 1000
+            );
           }
           setStep(progress.step);
         } else {
@@ -193,6 +214,7 @@ export default function ParticipantPage() {
     currentIndex,
     selectedAnswers,
     deadline,
+    questionDeadline,
     violations,
     violationNoticeOpen,
     hiddenDuringTest,
@@ -302,6 +324,42 @@ export default function ParticipantPage() {
     };
   }, [step, deadline]);
 
+  useEffect(() => {
+    if (step !== 'test' || questionDeadline === null) return;
+
+    let timeoutScheduled = false;
+    const updateQuestionCountdown = () => {
+      const currentDeadline = questionDeadlineRef.current;
+      if (currentDeadline === null) return;
+
+      const secondsRemaining = Math.max(
+        0,
+        Math.ceil((currentDeadline - Date.now()) / 1000)
+      );
+      setQuestionCountdown(
+        secondsRemaining <= QUESTION_COUNTDOWN_SECONDS ? secondsRemaining : null
+      );
+
+      if (secondsRemaining === 0 && !timeoutScheduled) {
+        timeoutScheduled = true;
+        questionTimeoutRef.current = setTimeout(
+          () => questionTimeoutHandlerRef.current(),
+          500
+        );
+      }
+    };
+
+    updateQuestionCountdown();
+    questionTimerRef.current = setInterval(updateQuestionCountdown, 250);
+
+    return () => {
+      if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+      if (questionTimeoutRef.current) clearTimeout(questionTimeoutRef.current);
+      questionTimerRef.current = null;
+      questionTimeoutRef.current = null;
+    };
+  }, [step, questionDeadline]);
+
   // Format otomatis tanggal lahir dd/mm/yyyy
   const handleDateChange = (val: string) => {
     const cleaned = val.replace(/\D/g, '');
@@ -398,10 +456,16 @@ export default function ParticipantPage() {
   const handleStartTest = () => {
     sounds.playSuccess();
     alarmPlayedRef.current = false;
+    currentIndexRef.current = 0;
+    setCurrentIndex(0);
     const newDeadline = Date.now() + TEST_DURATION_SECONDS * 1000;
     deadlineRef.current = newDeadline;
     setDeadline(newDeadline);
     setTimeLeft(TEST_DURATION_SECONDS);
+    const newQuestionDeadline = Date.now() + QUESTION_DURATION_SECONDS * 1000;
+    questionDeadlineRef.current = newQuestionDeadline;
+    setQuestionDeadline(newQuestionDeadline);
+    setQuestionCountdown(null);
     hiddenDuringTestRef.current = false;
     setHiddenDuringTest(false);
     setStep('test');
@@ -409,26 +473,44 @@ export default function ParticipantPage() {
 
   // Pilih Jawaban
   const handleSelectAnswer = (answerId: string) => {
-    const currentQ = questions[currentIndex];
-    setSelectedAnswers((prev) => ({
-      ...prev,
+    const currentQ = questionsRef.current[currentIndexRef.current];
+    if (!currentQ) return;
+
+    const updatedAnswers = {
+      ...selectedAnswersRef.current,
       [currentQ.question_id]: answerId,
-    }));
+    };
+    selectedAnswersRef.current = updatedAnswers;
+    setSelectedAnswers(updatedAnswers);
+  };
+
+  const advanceToNextQuestion = () => {
+    const nextIndex = currentIndexRef.current + 1;
+    if (nextIndex >= questionsRef.current.length) {
+      questionDeadlineRef.current = null;
+      setQuestionDeadline(null);
+      setQuestionCountdown(null);
+      handleFinalSubmit();
+      return;
+    }
+
+    currentIndexRef.current = nextIndex;
+    setCurrentIndex(nextIndex);
+    const nextDeadline = Date.now() + QUESTION_DURATION_SECONDS * 1000;
+    questionDeadlineRef.current = nextDeadline;
+    setQuestionDeadline(nextDeadline);
+    setQuestionCountdown(null);
   };
 
   // Pindah ke Soal Berikutnya atau Selesai
   const handleNextQuestion = () => {
-    const currentQ = questions[currentIndex];
-    if (!selectedAnswers[currentQ.question_id]) {
+    const currentQ = questionsRef.current[currentIndexRef.current];
+    if (!currentQ || !selectedAnswersRef.current[currentQ.question_id]) {
       alert('Pertanyaan wajib dijawab sebelum melanjutkan!');
       return;
     }
 
-    if (currentIndex < questions.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
-    } else {
-      handleFinalSubmit();
-    }
+    advanceToNextQuestion();
   };
 
   // Kirim Jawaban Akhir ke Sheet db_jawaban_peserta
@@ -510,7 +592,37 @@ export default function ParticipantPage() {
     }
   };
 
+  const handleQuestionTimeout = () => {
+    if (stepRef.current !== 'test' || submittingRef.current) return;
+    if (
+      questionDeadlineRef.current === null ||
+      Date.now() < questionDeadlineRef.current
+    ) {
+      return;
+    }
+
+    if (deadlineRef.current !== null && Date.now() >= deadlineRef.current) {
+      autoSubmitRef.current();
+      return;
+    }
+
+    const currentQ = questionsRef.current[currentIndexRef.current];
+    if (!currentQ) return;
+
+    if (!selectedAnswersRef.current[currentQ.question_id]) {
+      const updatedAnswers = {
+        ...selectedAnswersRef.current,
+        [currentQ.question_id]: TIMEOUT_ANSWER_ID,
+      };
+      selectedAnswersRef.current = updatedAnswers;
+      setSelectedAnswers(updatedAnswers);
+    }
+
+    advanceToNextQuestion();
+  };
+
   autoSubmitRef.current = handleAutoSubmit;
+  questionTimeoutHandlerRef.current = handleQuestionTimeout;
 
   useEffect(() => {
     if (step !== 'finished' || !scorePending || !form.user_id) return;
@@ -728,7 +840,9 @@ export default function ParticipantPage() {
             </div>
             <div className="flex items-start gap-2.5">
               <ShieldCheck className="w-5 h-5 flex-shrink-0 text-black mt-0.5" />
-              <span>Setiap pertanyaan wajib dijawab untuk melanjutkan ke soal berikutnya.</span>
+              <span>
+                Jika hitung mundur berakhir tanpa jawaban, sistem mencatat timeout dan otomatis melanjutkan ke soal berikutnya.
+              </span>
             </div>
             <div className="flex items-start gap-2.5">
               <AlertTriangle className="w-5 h-5 flex-shrink-0 text-[#FF6B8B] mt-0.5" />
@@ -767,6 +881,21 @@ export default function ParticipantPage() {
             </div>
             <Timer seconds={timeLeft} />
           </div>
+
+          {questionCountdown !== null && (
+            <div
+              className="mb-4 flex items-center justify-center gap-3 border-3 border-black bg-[#FF6B8B] p-3 font-black uppercase shadow-[4px_4px_0px_#000] animate-pulse"
+              role="timer"
+              aria-live="assertive"
+              aria-label={`Sisa ${questionCountdown} detik untuk menjawab`}
+            >
+              <span className="text-xs">Segera jawab</span>
+              <span className="min-w-10 animate-bounce text-center font-mono text-3xl leading-none">
+                {questionCountdown}
+              </span>
+              <span className="text-xs">detik</span>
+            </div>
+          )}
 
           {/* Kartu Soal */}
           <QuestionCard
