@@ -912,6 +912,29 @@ export default function ParticipantPage() {
         </div>
       )}
 
+      {step === 'test' && (
+        <div className="exam-mobile-watermark" aria-hidden="true">
+          <div className="exam-mobile-watermark__grid">
+            {Array.from({ length: 20 }, (_, index) => (
+              <span key={index}>
+                {form.nama_lengkap} · {form.user_id}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {step === 'test' && hiddenDuringTest && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black text-center text-white"
+          aria-hidden="true"
+        >
+          <span className="px-6 text-lg font-black uppercase tracking-widest">
+            Ujian dijeda
+          </span>
+        </div>
+      )}
+
       {step === 'test' && violationNoticeOpen && (
         <div
           className="fixed inset-0 z-[100] flex h-screen w-screen items-center justify-center bg-black/75 p-4"
